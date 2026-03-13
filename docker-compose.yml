@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: radius_db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: radius
+      MYSQL_USER: radius
+      MYSQL_PASSWORD: radpass
+    volumes:
+      - ./db-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  radius:
+    build: ./radius
+    container_name: radius_server
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    volumes:
+      - radius_certs:/etc/raddb/certs
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    container_name: radius_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db
+      - DB_USER=radius
+      - DB_PASS=radpass
+      - DB_NAME=radius
+      - JWT_SECRET=super-secret-freeradius-key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: radius_pma
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=db
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  radius_certs:
