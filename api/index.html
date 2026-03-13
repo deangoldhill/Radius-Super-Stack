@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FreeRADIUS Management</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #eef2f5; color: #333;}
+        #loginOverlay { position: fixed; top:0; left:0; width: 100%; height: 100%; background: #0056b3; display: flex; align-items: center; justify-content: center; z-index: 1000;}
+        .login-box { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 300px; text-align: center;}
+        .login-box input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px;}
+        .login-box button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;}
+        .navbar { background: #0056b3; padding: 15px 20px; color: white; display: flex; gap: 20px; align-items: center;}
+        .navbar button { background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 5px 10px; border-radius: 4px; display: none;}
+        .navbar button.active { background: #004494; font-weight: bold;}
+        .logout-btn { margin-left: auto; background: #dc3545 !important; display: block !important;}
+        .container { background: #fff; padding: 20px; margin: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: none; }
+        .container.active { display: block; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left;} th { background-color: #f4f6f8;}
+        .sortable { cursor: pointer; position: relative; padding-right: 20px !important; } .sortable:hover { background-color: #e2e6ea; }
+        .sortable::after { content: "\21D5"; font-size: 0.8em; opacity: 0.5; position: absolute; right: 8px; top: 12px; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #eef2f5; padding-bottom: 10px; margin-bottom: 15px; align-items: center;}
+        .btn { padding: 6px 12px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; font-size:13px;}
+        .btn-danger { background: #dc3545;} .btn-warning { background: #ffc107; color: black;} .btn-info { background: #17a2b8;} .btn-primary { background: #007bff;}
+        .control-form { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;}
+        .control-form input[type="text"], .control-form input[type="date"], .control-form input[type="password"], .control-form select, .control-form input[type="number"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px;}
+        .roles-list { margin: 10px 0; display: flex; gap: 15px; flex-wrap: wrap;}
+        .badge { background: #6c757d; color: white; padding: 3px 6px; border-radius: 4px; font-size: 12px; display:inline-block; margin:2px;}
+        .usage-text { font-family: monospace; white-space: nowrap; }
+        .dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;}
+        .dash-card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; border-bottom: 4px solid #007bff;}
+        .dash-card h3 { margin: 0 0 10px 0; font-size: 13px; color: #6c757d; text-transform: uppercase;} .dash-card .val { font-size: 26px; font-weight: bold; color: #333;}
+        .chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 20px;} .chart-box { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center;}
+        .modal-content { background-color: #fff; padding: 20px; border-radius: 8px; width: 350px; position: relative;}
+        .modal-close { position: absolute; right: 15px; top: 10px; font-size: 20px; cursor: pointer; }
+        
+        .info-tip { display:inline-block; width:16px; height:16px; background:#17a2b8; color:#fff; border-radius:50%; text-align:center; font-size:12px; line-height:16px; cursor:help; position:relative; margin-left:5px; font-weight:bold; }
+        .info-tip::after { content: attr(data-tip); position:absolute; bottom:125%; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:6px 10px; border-radius:4px; white-space:nowrap; display:none; z-index:10; font-size:11px; font-weight:normal; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+        .info-tip:hover::after { display:block; }
+    </style>
+</head>
+<body>
+    <div id="loginOverlay"><div class="login-box"><h2 style="margin-top:0;">FreeRADIUS</h2><div id="loginError" style="color:red; font-size: 14px; margin-bottom: 10px;"></div>
+        <div id="step1"><input type="text" id="username" placeholder="Username"><input type="password" id="password" placeholder="Password"><button onclick="doLogin()">Login</button></div>
+        <div id="step2" style="display:none;"><p>Enter 2FA Code</p><input type="text" id="totp" placeholder="6-digit code"><button onclick="verify2FA()">Verify</button></div>
+        <div id="step3" style="display:none;"><p><strong>Setup 2FA Required</strong></p><p style="font-size:13px; color:#666;">Scan QR with Authenticator App</p><img id="setupQR" src=""><input type="hidden" id="setupSecret"><input type="text" id="setupCode" placeholder="Enter 6-digit code"><button onclick="submitSetup2FA()">Save & Login</button></div>
+    </div></div>
+
+    <div class="navbar" id="navbar">
+        <button id="nav-reporting" class="nav-btn" onclick="switchTab('reportingTab', this)">Reporting</button>
+        <button id="nav-active" class="nav-btn" onclick="switchTab('activeTab', this)">Active Sessions</button>
+        <button id="nav-history" class="nav-btn" onclick="switchTab('historyTab', this)">Accounting</button>
+        <button id="nav-authlogs" class="nav-btn" onclick="switchTab('authlogsTab', this)">Auth Logs</button>
+        <button id="nav-profiles" class="nav-btn" onclick="switchTab('profilesTab', this)">Profiles</button>
+        <button id="nav-users" class="nav-btn" onclick="switchTab('usersTab', this)">Users</button>
+        <button id="nav-clients" class="nav-btn" onclick="switchTab('clientsTab', this)">Clients</button>
+        <button id="nav-admins" class="nav-btn" onclick="switchTab('adminsTab', this)">Admins</button>
+        <button id="nav-audit" class="nav-btn" onclick="switchTab('auditTab', this)">Audit Logs</button>
+        <button id="nav-settings" class="nav-btn" onclick="switchTab('settingsTab', this)" style="display:block;">Settings</button>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+
+    <div id="reportingTab" class="container">
+        <div class="header">
+            <h2>Reporting: <span id="reportTypeTitle" style="color:#007bff; font-weight:normal;">Executive User Report</span></h2>
+            <div>
+                <button class="btn btn-primary" onclick="toggleReportView('user')">Executive User Report</button>
+                <button class="btn btn-danger" onclick="toggleReportView('failed')">Failed Auth Report</button>
+            </div>
+        </div>
+
+        <div id="execUserReportView">
+            <div class="control-form">
+                <strong>Target User:</strong> <span id="reportUserContainer"></span> <span class="info-tip" data-tip="Select __unknown__ to see devices trying to connect that don't exist in the database">?</span>
+                <strong style="margin-left:15px;">Date Range:</strong> <input type="date" id="repStart"> to <input type="date" id="repEnd">
+                <button class="btn btn-primary" style="margin-left:15px;" onclick="generateReport()">Generate Report</button>
+                <button class="btn btn-info" style="margin-left:10px;" onclick="exportPDF('reportDashboard', 'Executive_Report.pdf')">Export PDF</button>
+            </div>
+            <div id="reportDashboard" style="display:none; background: #f8f9fa; padding:20px; border-radius:8px; border:1px solid #ddd;">
+                <h3>Activity Overview: <span id="repTitleName" style="color:#007bff;"></span></h3>
+                <div class="dash-grid"><div class="dash-card"><h3>Total Download</h3><div class="val" id="repDown">0 B</div></div><div class="dash-card"><h3>Total Upload</h3><div class="val" id="repUp">0 B</div></div><div class="dash-card"><h3>Total Sessions</h3><div class="val" id="repSess">0</div></div><div class="dash-card"><h3>Time Connected</h3><div class="val" id="repTime">0h 0m</div></div></div>
+                <h3>Authentication Analytics</h3>
+                <div class="dash-grid"><div class="dash-card" style="border-bottom: 4px solid #6c757d;"><h3>Total Attempts</h3><div class="val" id="repAuthTotal">0</div></div><div class="dash-card" style="border-bottom: 4px solid #28a745;"><h3>Successful</h3><div class="val" id="repAuthAccept" style="color:#28a745;">0</div></div><div class="dash-card" style="border-bottom: 4px solid #dc3545;"><h3>Failed</h3><div class="val" id="repAuthReject" style="color:#dc3545;">0</div></div><div class="dash-card" style="border-bottom: 4px solid #17a2b8;"><h3>Success Rate</h3><div class="val" id="repAuthRate">0%</div></div></div>
+                <div class="chart-row"><div class="chart-box"><canvas id="dailyChartCanvas"></canvas></div><div class="chart-box"><canvas id="nasChartCanvas"></canvas></div></div>
+                <div class="chart-box" style="margin-bottom: 20px;"><canvas id="authDailyChartCanvas"></canvas></div>
+                <div class="chart-box"><h3>Top 15 Data Sessions</h3><table><thead><tr><th>Start Date</th><th>Duration</th><th>Framed IP</th><th>NAS IP</th><th>Upload</th><th>Download</th><th>Total Data</th></tr></thead><tbody id="repTopSessions"></tbody></table></div>
+            </div>
+        </div>
+
+        <div id="failedAuthReportView" style="display:none;">
+            <div class="control-form"><strong>Date Range:</strong> <input type="date" id="failRepStart"> to <input type="date" id="failRepEnd"> <button class="btn btn-danger" style="margin-left:15px;" onclick="generateFailedReport()">Generate Report</button><button class="btn btn-info" style="margin-left:10px;" onclick="exportPDF('failedDashboard', 'Failed_Auth_Report.pdf')">Export PDF</button></div>
+            <div id="failedDashboard" style="display:none; background: #fdfdfe; padding:20px; border-radius:8px; border:1px solid #f5c6cb;">
+                <div class="chart-row"><div class="chart-box"><h3>Daily Rejection Trends</h3><canvas id="failLineChart"></canvas></div><div class="chart-box"><h3>Top 10 Rejected Identities</h3><canvas id="failPieChart"></canvas></div></div>
+                <div class="chart-row">
+                    <div class="chart-box"><h3>Unique Users Failure Count</h3><table><thead><tr><th>Username</th><th>Failed Attempts</th></tr></thead><tbody id="failUniqueTable"></tbody></table></div>
+                    <div class="chart-box"><h3>Recent Rejections (Latest 50)</h3><table><thead><tr><th>Time</th><th>Attempted Identity</th></tr></thead><tbody id="failRecentTable"></tbody></table></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ACTIVE -->
+    <div id="activeTab" class="container"><div class="header"><h2>Active Sessions <span class="info-tip" data-tip="Users currently connected to the network right now">?</span></h2><button class="btn" onclick="fetchActive()">Refresh</button></div><table><thead><tr><th>Username</th><th>Client IP</th><th>NAS IP</th><th>Start Time</th><th>Upload</th><th>Download</th></tr></thead><tbody id="activeTable"></tbody></table></div>
+
+    <!-- HISTORY -->
+    <div id="historyTab" class="container">
+        <div class="header"><h2>Accounting <span class="info-tip" data-tip="Historical log of finished network sessions and data consumed">?</span></h2></div>
+        <div class="control-form"><strong>Search:</strong><label>User: <span id="filterUserContainer"></span></label><label>Start: <input type="date" id="filterStart"></label><label>End: <input type="date" id="filterEnd"></label><button class="btn btn-info" onclick="fetchHistory()">Search</button></div>
+        <div id="purgeAccountingForm" class="control-form write-only" style="background:#fff3cd; border:1px solid #ffeeba;"><strong>Purge:</strong><label>User: <span id="delUserContainer"></span></label><label>Start: <input type="date" id="delStart"></label><label>End: <input type="date" id="delEnd"></label><button class="btn btn-danger" onclick="deleteHistory()">Delete Records</button></div>
+        <table><thead><tr><th class="sortable" onclick="sortTable('closedTable', 0, false)">Username</th><th class="sortable" onclick="sortTable('closedTable', 1, false)">Client IP</th><th class="sortable" onclick="sortTable('closedTable', 2, false)">NAS IP</th><th class="sortable" onclick="sortTable('closedTable', 3, true)">Stop Time</th><th class="sortable" onclick="sortTable('closedTable', 4, true)">Duration</th><th class="sortable" onclick="sortTable('closedTable', 5, true)">Upload</th><th class="sortable" onclick="sortTable('closedTable', 6, true)">Download</th><th class="sortable" onclick="sortTable('closedTable', 7, true)">Total</th><th>Term Reason</th></tr></thead><tbody id="closedTable"></tbody></table>
+    </div>
+
+    <!-- AUTH LOGS -->
+    <div id="authlogsTab" class="container">
+        <div class="header"><h2>Auth Logs <span class="info-tip" data-tip="Record of successful and failed password attempts">?</span></h2></div>
+        <div class="control-form"><strong>Search:</strong><label>User: <span id="filterAuthLogUserContainer"></span></label><label>Start: <input type="date" id="filterAuthStart"></label><label>End: <input type="date" id="filterAuthEnd"></label><label>Result: <select id="filterAuthResult"><option value="">All</option><option value="Accept">Accepts Only</option><option value="Reject">Rejects Only</option></select></label><button class="btn btn-info" onclick="fetchAuthLogs()">Search</button></div>
+        <div id="purgeAuthLogsForm" class="control-form write-only" style="background:#f8d7da; border:1px solid #f5c6cb;"><strong>Purge:</strong><label>User: <span id="delAuthUserContainer"></span></label><label>Start: <input type="date" id="delAuthStart"></label><label>End: <input type="date" id="delAuthEnd"></label><button class="btn btn-danger" onclick="deleteAuthLogs()">Delete Logs</button></div>
+        <table><thead><tr><th class="sortable" onclick="sortTable('authlogsTable', 0, false)">Username</th><th class="sortable" onclick="sortTable('authlogsTable', 1, true)">Time</th><th class="sortable" onclick="sortTable('authlogsTable', 2, false)">Result</th></tr></thead><tbody id="authlogsTable"></tbody></table>
+    </div>
+
+    <!-- PROFILES -->
+    <div id="profilesTab" class="container"><div class="header"><h2>Network Profiles <span class="info-tip" data-tip="VLANs and custom RADIUS attributes applied to groups of users">?</span></h2><button class="btn" onclick="fetchProfiles()">Refresh</button></div><div class="control-form write-only"><input type="text" id="addProfName" placeholder="Profile Name"><input type="number" id="addProfVlan" placeholder="VLAN ID"><button class="btn" onclick="createProfile()">Add Profile</button></div><table><thead><tr><th class="sortable" onclick="sortTable('profilesTable', 0, false)">Profile Name</th><th>VLAN ID</th><th>Extra Attributes</th><th>Restricted NAS</th><th class="write-only">Actions</th></tr></thead><tbody id="profilesTable"></tbody></table></div>
+
+    <!-- USERS -->
+    <div id="usersTab" class="container"><div class="header"><h2>Users Directory <span class="info-tip" data-tip="Manage individual device/user logins and static IP assignments">?</span></h2><button class="btn" onclick="fetchUsers()">Refresh</button></div>
+    <div class="control-form write-only">
+        <div style="padding-right: 20px; border-right: 2px solid #ddd; margin-right: 15px;"><strong>Single User:</strong> <input type="text" id="addUsername" placeholder="Username"><input type="password" id="addPassword" placeholder="Password"><select id="addUserProfile"><option value="">No Profile</option></select><button class="btn" onclick="createUser()">Add</button></div>
+        <div id="bulkImportDiv"><strong>Bulk CSV Import <span class="info-tip" data-tip="Format: Username, Password, Profile (optional), StaticIP (optional)">?</span> :</strong> <input type="file" id="csvFile" accept=".csv"><button class="btn btn-info" onclick="uploadCSV()">Import</button></div>
+    </div>
+    <table><thead><tr><th class="sortable" onclick="sortTable('usersTable', 0, false)">Username</th><th class="sortable" onclick="sortTable('usersTable', 1, false)">Profile</th><th>Attributes</th><th>31d Data</th><th class="write-only">Actions</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+
+    <!-- CLIENTS, ADMINS, AUDIT, SETTINGS -->
+    <div id="clientsTab" class="container"><div class="header"><h2>RADIUS Clients <span class="info-tip" data-tip="The routers, switches, and APs allowed to query this server">?</span></h2><button class="btn" onclick="fetchClients()">Refresh</button></div><div class="control-form write-only"><input type="text" id="nasIp" placeholder="NAS IP/Name"><input type="text" id="nasShort" placeholder="Shortname (Required)"><input type="text" id="nasSecret" placeholder="Secret"><button class="btn" onclick="createClient()">Add</button></div><table><thead><tr><th class="sortable" onclick="sortTable('clientsTable', 0, false)">NAS Name</th><th>Shortname</th><th>Type</th><th>Secret</th><th class="write-only">Actions</th></tr></thead><tbody id="clientsTable"></tbody></table></div>
+    
+    <div id="adminsTab" class="container"><div class="header"><h2>Administrators <span class="info-tip" data-tip="People who can log into this web dashboard or use the API">?</span></h2><button class="btn" onclick="fetchAdmins()">Refresh</button></div><div id="apiKeyDisplay" class="control-form" style="display:none; background:#d4edda;"><strong style="color:#155724;">API Key:</strong> <code id="apiKeyValue" style="padding:6px; background:#fff; flex-grow:1;"></code> <button class="btn btn-danger" onclick="this.parentElement.style.display='none'">X</button></div><div class="control-form write-only"><h3>Add Admin</h3><input type="text" id="newAdminUser" placeholder="Username"><input type="password" id="newAdminPass" placeholder="Password"><label><input type="radio" name="newAdminRW" value="readonly" checked> Read-Only</label><label><input type="radio" name="newAdminRW" value="readwrite"> Read-Write</label><label><input type="checkbox" id="newAdmin2FA"> 2FA</label><div class="roles-list" id="newAdminRoles"><label><input type="checkbox" value="reporting"> Reporting</label><label><input type="checkbox" value="active"> Active</label><label><input type="checkbox" value="history"> Accounting</label><label><input type="checkbox" value="authlogs"> Auth Logs</label><label><input type="checkbox" value="profiles"> Profiles</label><label><input type="checkbox" value="users"> Users</label><label><input type="checkbox" value="clients"> Clients</label><label><input type="checkbox" value="admins"> Admins</label><label><input type="checkbox" value="audit"> Audit</label></div><button class="btn" onclick="createAdmin()">Create</button><div id="qrContainer" style="display:none;"><p><strong>Scan QR:</strong></p><img id="qrImg" src=""></div></div><table><thead><tr><th>ID</th><th>Username</th><th>Roles</th><th>Security</th><th class="write-only">Actions</th></tr></thead><tbody id="adminsTable"></tbody></table></div>
+    
+    <div id="auditTab" class="container"><div class="header"><h2>Audit Logs <span class="info-tip" data-tip="Trail of all actions performed by administrators">?</span></h2></div><div class="control-form"><input type="text" id="auditUser" placeholder="Admin Username"><select id="auditMode"><option value="">All Origins</option><option value="API">API</option><option value="Frontend">Frontend</option></select><input type="date" id="auditStart"><input type="date" id="auditEnd"><input type="text" id="auditAction" placeholder="Search Actions..."><button class="btn btn-info" onclick="fetchAudit()">Search</button></div><table><thead><tr><th>Time</th><th>User</th><th>Origin</th><th>Action Performed</th></tr></thead><tbody id="auditTable"></tbody></table></div>
+
+    <div id="settingsTab" class="container">
+        <div class="header"><h2>System & Settings</h2></div>
+        
+        <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
+            <!-- Left Column -->
+            <div style="flex: 1; min-width: 400px;">
+                <div class="control-form write-only" style="flex-direction:column; align-items:flex-start;">
+                    <h3 style="margin-top:0;">Global App Preferences</h3>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Search filter mode:</strong><select id="settingSearchMode"><option value="dropdown">Dropdown List</option><option value="input">Input search field</option></select></label>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Enable Bulk Import (Users):</strong><input type="checkbox" id="setBulk"></label>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Enable Extra Profile Attributes:</strong><input type="checkbox" id="setProfAttr"></label>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Enable Purge (Accounting):</strong><input type="checkbox" id="setPurgeAcct"></label>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Enable Purge (Auth Logs):</strong><input type="checkbox" id="setPurgeAuth"></label>
+                    <label style="display:flex; justify-content:space-between; width:100%;"><strong>Force 2FA on New Admins:</strong><input type="checkbox" id="setForce2fa"></label>
+                    <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="saveSettings()">Save & Apply Settings</button>
+                </div>
+                
+                <div class="control-form write-only" style="flex-direction:column; align-items:flex-start; background: #e2e3e5; border: 1px solid #ccc;">
+                    <h3 style="margin-top:0;">EAP Certificate Generator</h3>
+                    <p style="font-size: 13px; margin: 0 0 10px 0; color:#555;">Generate a brand new 10-year root CA and Server certificate. <strong>This will automatically restart FreeRADIUS.</strong></p>
+                    <input type="text" id="certC" placeholder="Country Code (e.g. GB, US)" style="width:90%; margin-bottom:5px;">
+                    <input type="text" id="certST" placeholder="State / Province" style="width:90%; margin-bottom:5px;">
+                    <input type="text" id="certL" placeholder="Locality / City" style="width:90%; margin-bottom:5px;">
+                    <input type="text" id="certO" placeholder="Organization" style="width:90%; margin-bottom:5px;">
+                    <input type="text" id="certCN" placeholder="Common Name (e.g. Acme Corp)" style="width:90%; margin-bottom:5px;">
+                    <button class="btn btn-danger" style="width:100%; margin-top:10px;" onclick="generateCerts()">Generate & Replace Certificates</button>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div style="flex: 1; min-width: 400px;">
+                <div class="control-form" style="flex-direction:column; align-items:flex-start; background: #e8f4f8; border: 1px solid #b8daff;">
+                    <h3 style="margin-top:0;">FreeRADIUS Service</h3>
+                    <p>Status: <strong id="sysRadStatus" style="font-size: 18px; text-transform: uppercase;">Checking...</strong></p>
+                    <div style="display: flex; gap: 10px; width:100%;">
+                        <button class="btn btn-info" style="flex:1;" onclick="fetchSystemStatus()">Refresh Status</button>
+                        <button class="btn btn-warning write-only" style="flex:1;" onclick="restartRadius()">Restart Service</button>
+                    </div>
+                    <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top:15px; width:100%;">
+                        <strong>Client Certificates:</strong><br>
+                        <a href="/api/v1/system/certs/download" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#28a745; color:#fff; text-decoration:none; border-radius:4px; font-size:13px; font-weight:bold;">Download Public Root CA (.der)</a>
+                    </div>
+                </div>
+
+                <div class="control-form" style="flex-direction:column; align-items:flex-start; background: #fff3cd; border: 1px solid #ffeeba;">
+                    <h3 style="margin-top:0;">MariaDB Status</h3>
+                    <p style="margin:0 0 10px 0;">Uptime: <strong id="sysDbUptime">0</strong> | Total Size: <strong id="sysDbSize">0 MB</strong></p>
+                    <div style="max-height: 250px; overflow-y: auto; width: 100%;">
+                        <table style="margin-top: 0; background: white;">
+                            <thead><tr><th>Table Name</th><th>Rows</th><th>Size (MB)</th></tr></thead>
+                            <tbody id="sysDbTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALS -->
+    <div id="userProfileModal" class="modal"><div class="modal-content"><span class="modal-close" onclick="closeModal('userProfileModal')">&times;</span><h3>Set User Profile</h3><input type="hidden" id="editUserProfileName"><p>Assign profile for <strong id="editUserProfileDisplay"></strong></p><select id="editUserProfileSelect" style="width:100%; margin-bottom:15px; padding:8px;"></select><button class="btn" onclick="saveUserProfile()">Save</button></div></div>
+    <div id="clientModal" class="modal"><div class="modal-content"><span class="modal-close" onclick="closeModal('clientModal')">&times;</span><h3>Edit Client</h3><input type="hidden" id="editClientId"><input type="text" id="editNasIp" placeholder="NAS IP/Name"><input type="text" id="editNasShort" placeholder="Shortname (Required)"><input type="text" id="editNasType" placeholder="Type"><input type="text" id="editNasSecret" placeholder="Secret"><input type="text" id="editNasDesc" placeholder="Description"><button class="btn" onclick="saveClient()">Save</button></div></div>
+    <div id="adminModal" class="modal"><div class="modal-content"><span class="modal-close" onclick="closeModal('adminModal')">&times;</span><h3>Edit Administrator</h3><input type="hidden" id="editAdminId"><label><input type="radio" name="editAdminRW" value="readonly"> Read-Only</label><label><input type="radio" name="editAdminRW" value="readwrite"> Read-Write</label><div class="roles-list" id="editAdminRoles" style="flex-direction:column; margin-top:10px;"><label><input type="checkbox" value="reporting"> Reporting</label><label><input type="checkbox" value="active"> Active</label><label><input type="checkbox" value="history"> Accounting</label><label><input type="checkbox" value="authlogs"> Auth Logs</label><label><input type="checkbox" value="profiles"> Profiles</label><label><input type="checkbox" value="users"> Users</label><label><input type="checkbox" value="clients"> Clients</label><label><input type="checkbox" value="admins"> Admins</label><label><input type="checkbox" value="audit"> Audit</label></div><label><input type="checkbox" id="editAdmin2FA"> Enable 2FA</label><br><br><button class="btn" onclick="saveAdmin()">Save</button></div></div>
+    <div id="attrModal" class="modal"><div class="modal-content"><span class="modal-close" onclick="closeModal('attrModal')">&times;</span><h3>Add Profile Attribute</h3><input type="hidden" id="attrProfileName"><select id="attrSelect" style="width:100%; margin-bottom:10px; padding:8px;"><option value="Acct-Interim-Interval">Acct-Interim-Interval</option><option value="Session-Timeout">Session-Timeout</option><option value="Reply-Message">Reply-Message</option></select><input type="text" id="attrValue" placeholder="Value" style="width:90%; padding:8px; margin-bottom:15px;"><button class="btn btn-primary" onclick="saveProfileAttr()">Add Attribute</button></div></div>
+    <div id="nasRestrictModal" class="modal"><div class="modal-content"><span class="modal-close" onclick="closeModal('nasRestrictModal')">&times;</span><h3>Restrict Profile to NAS</h3><input type="hidden" id="restrictProfileName"><p>Select NAS Client for <strong id="restrictProfileDisplay"></strong></p><select id="restrictNasSelect" style="width:100%; margin-bottom:15px; padding:8px;"></select><button class="btn btn-primary" onclick="saveNasRestriction()">Add Restriction</button></div></div>
+
+    <script>
+        let appSettings = {}; let currentUser = null; let currentPass = null;
+        
+        async function apiCall(endpoint, options = {}) { 
+            options.headers = options.headers || {}; 
+            const token = localStorage.getItem('jwt'); 
+            if (token) options.headers['Authorization'] = `Bearer ${token}`; 
+            if(options.body && typeof options.body !== 'string') { options.body = JSON.stringify(options.body); options.headers['Content-Type'] = 'application/json'; } 
+            
+            const res = await fetch(endpoint, options); 
+            if (res.status === 401 && !endpoint.includes('/auth/login')) { logout(); throw new Error("Unauthorized"); } 
+            
+            const data = await res.json(); 
+            if (!res.ok) throw new Error(data.detail || "API Error"); 
+            return data; 
+        }
+
+        function checkAuth() { 
+            const token = localStorage.getItem('jwt'); 
+            if (!token) return document.getElementById('loginOverlay').style.display = 'flex'; 
+            try { 
+                let b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'); 
+                while (b64.length % 4) { b64 += '='; } 
+                const payload = JSON.parse(atob(b64)); 
+                document.getElementById('loginOverlay').style.display = 'none'; 
+                fetchSettings().then(()=>setupRBAC(payload.roles.split(','))); 
+            } catch(e) { console.error(e); logout(); } 
+        }
+
+        async function doLogin() { 
+            const u = document.getElementById('username').value, p = document.getElementById('password').value; 
+            currentUser = u; currentPass = p; 
+            try { 
+                const res = await apiCall('/api/v1/auth/login', { method: 'POST', body: { username: u, password: p } }); 
+                if (res.status === '2fa_required') { document.getElementById('step1').style.display = 'none'; document.getElementById('step2').style.display = 'block'; } 
+                else if (res.status === 'setup_2fa_required') { document.getElementById('step1').style.display = 'none'; document.getElementById('step3').style.display = 'block'; document.getElementById('setupQR').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(res.qr_uri)}`; document.getElementById('setupSecret').value = res.secret; } 
+                else { localStorage.setItem('jwt', res.token); checkAuth(); } 
+            } catch (e) { document.getElementById('loginError').innerText = e.message; } 
+        }
+
+        async function verify2FA() { const c = document.getElementById('totp').value; try { const res = await apiCall('/api/v1/auth/verify-2fa', { method: 'POST', body: { username: currentUser, code: c } }); localStorage.setItem('jwt', res.token); checkAuth(); } catch (e) { document.getElementById('loginError').innerText = e.message; } }
+        async function submitSetup2FA() { const c = document.getElementById('setupCode').value, sec = document.getElementById('setupSecret').value; try { const res = await apiCall('/api/v1/auth/setup-2fa', { method: 'POST', body: { username: currentUser, password: currentPass, secret: sec, code: c } }); localStorage.setItem('jwt', res.token); checkAuth(); } catch (e) { document.getElementById('loginError').innerText = e.message; } }
+        function logout() { localStorage.removeItem('jwt'); location.reload(); }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        
+        function formatBytes(bytes) { if (!+bytes) return '0 B'; const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k)); return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`; }
+        function formatTime(secs) { if(!secs) return '0s'; let h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60, str = ''; if (h > 0) str += h + 'h '; if (m > 0 || h > 0) str += m + 'm '; str += s + 's'; return str; }
+        function exportPDF(divId, filename) { const el = document.getElementById(divId); html2pdf().set({margin:10, filename:filename, image:{type:'jpeg',quality:0.98}, html2canvas:{scale:2}, jsPDF:{unit:'mm',format:'a4',orientation:'landscape'}}).from(el).save(); }
+
+        let sortState = {};
+        function sortTable(tableId, colIndex, isNumeric) { const tbody = document.getElementById(tableId); const rows = Array.from(tbody.querySelectorAll('tr')); if(rows.length === 0) return; const isAsc = !sortState[tableId + colIndex]; sortState[tableId + colIndex] = isAsc; rows.sort((a, b) => { let valA = a.cells[colIndex].getAttribute('data-value') || a.cells[colIndex].innerText, valB = b.cells[colIndex].getAttribute('data-value') || b.cells[colIndex].innerText; if (isNumeric) { valA = parseFloat(valA) || 0; valB = parseFloat(valB) || 0; } else { valA = valA.toLowerCase(); valB = valB.toLowerCase(); } if (valA < valB) return isAsc ? -1 : 1; if (valA > valB) return isAsc ? 1 : -1; return 0; }); tbody.innerHTML = ''; rows.forEach(row => tbody.appendChild(row)); }
+        
+        async function fetchSettings() { try { const res = await apiCall('/api/v1/settings'); appSettings = res.data || {}; document.getElementById('settingSearchMode').value = appSettings.search_mode || 'dropdown'; document.getElementById('setBulk').checked = (appSettings.enable_bulk_import !== 'false'); document.getElementById('setProfAttr').checked = (appSettings.enable_profile_attrs !== 'false'); document.getElementById('setPurgeAcct').checked = (appSettings.enable_purge_accounting !== 'false'); document.getElementById('setPurgeAuth').checked = (appSettings.enable_purge_authlogs !== 'false'); document.getElementById('setForce2fa').checked = (appSettings.force_2fa === 'true'); applyUIConstraints(); } catch(e){} }
+        async function saveSettings() { try { const payload = { search_mode: document.getElementById('settingSearchMode').value, enable_bulk_import: document.getElementById('setBulk').checked?'true':'false', enable_profile_attrs: document.getElementById('setProfAttr').checked?'true':'false', enable_purge_accounting: document.getElementById('setPurgeAcct').checked?'true':'false', enable_purge_authlogs: document.getElementById('setPurgeAuth').checked?'true':'false', force_2fa: document.getElementById('setForce2fa').checked?'true':'false' }; await apiCall('/api/v1/settings', {method:'POST', body:payload}); alert("Settings saved!"); fetchSettings(); fetchUserDropdown(); fetchProfiles(); } catch(e){ alert(e.message); } }
+        function applyUIConstraints() { document.getElementById('bulkImportDiv').style.display = (appSettings.enable_bulk_import !== 'false') ? 'block' : 'none'; document.getElementById('purgeAccountingForm').style.display = (appSettings.enable_purge_accounting !== 'false') ? 'flex' : 'none'; document.getElementById('purgeAuthLogsForm').style.display = (appSettings.enable_purge_authlogs !== 'false') ? 'flex' : 'none'; }
+
+        async function fetchSystemStatus() { try { const res = await apiCall('/api/v1/system/status'); const s = document.getElementById('sysRadStatus'); s.innerText = res.radius_status; s.style.color = (res.radius_status === 'running') ? '#28a745' : '#dc3545'; document.getElementById('sysDbSize').innerText = res.db_size_mb.toFixed(2) + ' MB'; document.getElementById('sysDbUptime').innerText = formatTime(parseInt(res.db_uptime)); document.getElementById('sysDbTable').innerHTML = res.tables.map(t => `<tr><td>${t.name}</td><td>${t.rows}</td><td>${t.size_mb}</td></tr>`).join(''); } catch(e) {} }
+        async function restartRadius() { if(confirm("Restart the FreeRADIUS service? Connecting clients may drop temporarily.")) { try { await apiCall('/api/v1/system/radius/restart', {method:'POST'}); alert("Restarted successfully!"); fetchSystemStatus(); } catch(e) { alert(e.message); } } }
+        async function generateCerts() { const p = { c: document.getElementById('certC').value.trim(), st: document.getElementById('certST').value.trim(), l: document.getElementById('certL').value.trim(), o: document.getElementById('certO').value.trim(), cn: document.getElementById('certCN').value.trim() }; if(!p.c || !p.cn) return alert("Country and Common Name are strictly required!"); if(confirm("WARNING: Generating new certs will instantly invalidate old certificates on all devices! FreeRADIUS will also restart. Proceed?")) { try { document.getElementById('sysRadStatus').innerText = "GENERATING..."; await apiCall('/api/v1/system/certs', {method:'POST', body: p}); alert("Success! New 10-year certificates applied."); fetchSystemStatus(); } catch(e) { alert(e.message); } } }
+
+        function setupRBAC(roles) { let firstTab = null; roles.forEach(r => { const btn = document.getElementById('nav-' + r); if (btn) { btn.style.display = 'block'; if (!firstTab) firstTab = r + 'Tab'; } }); if(!roles.includes('write')){ const style = document.createElement('style'); style.innerHTML = '.write-only { display: none !important; }'; document.head.appendChild(style); } let d = new Date(); document.getElementById('repEnd').valueAsDate = d; document.getElementById('failRepEnd').valueAsDate = d; document.getElementById('auditEnd').valueAsDate = d; d.setDate(d.getDate() - 30); document.getElementById('repStart').valueAsDate = d; document.getElementById('failRepStart').valueAsDate = d; document.getElementById('auditStart').valueAsDate = d; if (firstTab) switchTab(firstTab, document.getElementById('nav-' + roles[0])); }
+        function switchTab(tabId, btn) { document.querySelectorAll('.container').forEach(c => c.classList.remove('active')); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); document.getElementById(tabId).classList.add('active'); if(btn) btn.classList.add('active'); if(['reportingTab','historyTab','authlogsTab'].includes(tabId)) fetchUserDropdown(); if(tabId === 'activeTab') fetchActive(); if(tabId === 'historyTab') fetchHistory(); if(tabId === 'authlogsTab') fetchAuthLogs(); if(tabId === 'profilesTab') fetchProfiles(); if(tabId === 'usersTab') { fetchProfiles(); fetchUsers(); } if(tabId === 'clientsTab') fetchClients(); if(tabId === 'adminsTab') fetchAdmins(); if(tabId === 'auditTab') fetchAudit(); if(tabId === 'settingsTab') fetchSystemStatus(); }
+        
+        async function fetchUserDropdown() { try { const res = await apiCall('/api/v1/users'); const users = res.data || []; const mode = appSettings.search_mode || 'dropdown'; const renderOpts = (withUnknown, selMsg) => `<option value="">${selMsg}</option>` + (withUnknown ? `<option value="__unknown__">Unknown User (Not in DB)</option>` : '') + users.map(u => `<option value="${u}">${u}</option>`).join(''); const applyHTML = (id, withU, selMsg) => { const el = document.getElementById(id + 'Container'); if(!el) return; if(mode === 'dropdown') el.innerHTML = `<select id="${id}">${renderOpts(withU, selMsg)}</select>`; else el.innerHTML = `<input type="text" id="${id}" list="${id}_list" placeholder="${selMsg}"><datalist id="${id}_list">${renderOpts(withU, selMsg)}</datalist>`; }; applyHTML('filterUser', true, 'All Users'); applyHTML('delUser', false, 'All Users'); applyHTML('filterAuthLogUser', true, 'All Users'); applyHTML('delAuthUser', false, 'All Users'); applyHTML('reportUser', true, 'Select a User...'); } catch(e){} }
+
+        let lineC=null, pieC=null, authBarC=null, failLineC=null, failPieC=null;
+        function toggleReportView(v) { document.getElementById('execUserReportView').style.display = v==='user'?'block':'none'; document.getElementById('failedAuthReportView').style.display = v==='failed'?'block':'none'; document.getElementById('reportTypeTitle').innerText = v==='user' ? 'Executive User Report' : 'Failed Authentication Report'; }
+        const chartByteFormatter = { ticks: { callback: function(val) { return formatBytes(val); } } }; const chartTooltipFormatter = { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + formatBytes(ctx.raw); } } };
+
+        async function generateReport() { const u = document.getElementById('reportUser') ? document.getElementById('reportUser').value : ''; const s = document.getElementById('repStart').value, e = document.getElementById('repEnd').value; if(!u || !s || !e) return alert("Select user and dates."); try { const res = await apiCall(`/api/v1/reports/user?username=${u}&start_date=${s}&end_date=${e}`); const d = res.data; if(!d.daily || d.daily.length===0) { document.getElementById('reportDashboard').style.display='none'; return alert("No records found."); } document.getElementById('reportDashboard').style.display='block'; document.getElementById('repTitleName').innerText=u; document.getElementById('repDown').innerText=formatBytes(d.summary.total_down); document.getElementById('repUp').innerText=formatBytes(d.summary.total_up); document.getElementById('repSess').innerText=d.summary.total_sessions; document.getElementById('repTime').innerText=formatTime(d.summary.total_time); const tA=d.auth_summary.total_auths||0, aA=d.auth_summary.accepts||0, rA=d.auth_summary.rejects||0; document.getElementById('repAuthTotal').innerText=tA; document.getElementById('repAuthAccept').innerText=aA; document.getElementById('repAuthReject').innerText=rA; document.getElementById('repAuthRate').innerText=(tA>0?Math.round((aA/tA)*100):0)+'%'; if(lineC) lineC.destroy(); lineC=new Chart(document.getElementById('dailyChartCanvas').getContext('2d'),{type:'line',data:{labels:d.daily.map(x=>x.day),datasets:[{label:'Download',data:d.daily.map(x=>x.down),borderColor:'#007bff'},{label:'Upload',data:d.daily.map(x=>x.up),borderColor:'#28a745'}]},options:{scales:{y:chartByteFormatter},plugins:{tooltip:chartTooltipFormatter}}}); if(pieC) pieC.destroy(); pieC=new Chart(document.getElementById('nasChartCanvas').getContext('2d'),{type:'doughnut',data:{labels:d.nas_distribution.map(x=>x.nasipaddress),datasets:[{data:d.nas_distribution.map(x=>x.total_bytes)}]},options:{plugins:{tooltip:{callbacks:{label:function(c){return formatBytes(c.raw);}}}}}}); if(authBarC) authBarC.destroy(); authBarC=new Chart(document.getElementById('authDailyChartCanvas').getContext('2d'),{type:'bar',data:{labels:d.auth_daily.map(x=>x.day),datasets:[{label:'Success',data:d.auth_daily.map(x=>x.accepts),backgroundColor:'#28a745'},{label:'Fail',data:d.auth_daily.map(x=>x.rejects),backgroundColor:'#dc3545'}]},options:{scales:{x:{stacked:true},y:{stacked:true}}}}); document.getElementById('repTopSessions').innerHTML=d.top_sessions.map(x=>`<tr><td>${new Date(x.acctstarttime).toLocaleString()}</td><td>${formatTime(x.acctsessiontime)}</td><td>${x.framedipaddress}</td><td>${x.nasipaddress}</td><td>${formatBytes(x.up)}</td><td>${formatBytes(x.down)}</td><td><strong>${formatBytes(x.up+x.down)}</strong></td></tr>`).join(''); } catch(e) { alert(e.message); } }
+        async function generateFailedReport() { const s=document.getElementById('failRepStart').value, e=document.getElementById('failRepEnd').value; try { const res = await apiCall(`/api/v1/reports/failed-auths?start_date=${s}&end_date=${e}`); const d = res.data; if(!d.daily || d.daily.length===0) { document.getElementById('failedDashboard').style.display='none'; return alert("No failures in date range."); } document.getElementById('failedDashboard').style.display='block'; if(failLineC) failLineC.destroy(); failLineC=new Chart(document.getElementById('failLineChart').getContext('2d'),{type:'line',data:{labels:d.daily.map(x=>x.day),datasets:[{label:'Failures',data:d.daily.map(x=>x.fails),borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.2)',fill:true}]}}); if(failPieC) failPieC.destroy(); failPieC=new Chart(document.getElementById('failPieChart').getContext('2d'),{type:'pie',data:{labels:d.top_users.map(x=>x.username),datasets:[{data:d.top_users.map(x=>x.failures)}]}}); document.getElementById('failUniqueTable').innerHTML = d.top_users.map(x=>`<tr><td><strong>${x.username}</strong></td><td><span class="badge" style="background:#dc3545;">${x.failures}</span></td></tr>`).join(''); document.getElementById('failRecentTable').innerHTML = d.recent.map(x=>`<tr><td>${new Date(x.authdate).toLocaleString()}</td><td><strong>${x.username}</strong></td></tr>`).join(''); } catch(e) { alert(e.message); } }
+
+        function gotoAccounting(username) { switchTab('historyTab', document.getElementById('nav-history')); const el = document.getElementById('filterUser'); if(el) el.value = username; fetchHistory(); }
+        async function fetchActive() { try { const d = await apiCall('/api/v1/online-users'); document.getElementById('activeTable').innerHTML = d.data.length ? d.data.map(u => `<tr><td><a href="#" onclick="gotoAccounting('${u.username}')"><strong>${u.username}</strong></a></td><td>${u.framedipaddress}</td><td>${u.nasipaddress}</td><td>${new Date(u.acctstarttime).toLocaleString()}</td><td class="usage-text">${formatBytes(u.acctinputoctets)}</td><td class="usage-text">${formatBytes(u.acctoutputoctets)}</td></tr>`).join('') : '<tr><td colspan="6" align="center">No active sessions</td></tr>'; } catch(e){} }
+        async function fetchHistory() { const el = document.getElementById('filterUser'); const u = el?el.value:'', s = document.getElementById('filterStart').value, e = document.getElementById('filterEnd').value; try { const d = await apiCall(`/api/v1/closed-sessions?username=${u}&start_date=${s}&end_date=${e}`); document.getElementById('closedTable').innerHTML = d.data.length ? d.data.map(r => `<tr><td data-value="${r.username}"><strong>${r.username}</strong></td><td>${r.framedipaddress}</td><td>${r.nasipaddress}</td><td data-value="${new Date(r.acctstoptime).getTime()}">${new Date(r.acctstoptime).toLocaleString()}</td><td data-value="${r.acctsessiontime}">${r.acctsessiontime}s</td><td data-value="${r.acctinputoctets}">${formatBytes(r.acctinputoctets)}</td><td data-value="${r.acctoutputoctets}">${formatBytes(r.acctoutputoctets)}</td><td data-value="${r.acctinputoctets+r.acctoutputoctets}"><strong>${formatBytes(r.acctinputoctets+r.acctoutputoctets)}</strong></td><td>${r.acctterminatecause}</td></tr>`).join('') : '<tr><td colspan="9" align="center">No records</td></tr>'; } catch(e){} }
+        async function deleteHistory() { const el = document.getElementById('delUser'); const u = el?el.value:'', s = document.getElementById('delStart').value, e = document.getElementById('delEnd').value; if(!s || !e) return alert("Dates required."); if(!confirm("Wipe history?")) return; try { const res = await apiCall(`/api/v1/closed-sessions?start_date=${s}&end_date=${e}&username=${u}`, {method: 'DELETE'}); alert(`Deleted ${res.deleted_rows} records.`); fetchHistory(); } catch(e){ alert(e.message); } }
+        
+        async function fetchAuthLogs() { const el = document.getElementById('filterAuthLogUser'); const u = el?el.value:'', s = document.getElementById('filterAuthStart').value, e = document.getElementById('filterAuthEnd').value, r = document.getElementById('filterAuthResult').value; try { const d = await apiCall(`/api/v1/auth-logs?username=${u}&start_date=${s}&end_date=${e}&result=${r}`); document.getElementById('authlogsTable').innerHTML = d.data.length ? d.data.map(x => `<tr><td data-value="${x.username}"><strong>${x.username}</strong></td><td data-value="${new Date(x.authdate).getTime()}">${new Date(x.authdate).toLocaleString()}</td><td data-value="${x.reply}"><span class="badge" style="background:${x.reply==='Accept'?'#28a745':'#dc3545'};">${x.reply}</span></td></tr>`).join('') : '<tr><td colspan="3" align="center">No records</td></tr>'; } catch(e){} }
+        async function deleteAuthLogs() { const el = document.getElementById('delAuthUser'); const u = el?el.value:'', s = document.getElementById('delAuthStart').value, e = document.getElementById('delAuthEnd').value; if(!s || !e) return; if(!confirm("Wipe Auth Logs?")) return; try { const res = await apiCall(`/api/v1/auth-logs?start_date=${s}&end_date=${e}&username=${u}`, {method: 'DELETE'}); alert(`Deleted ${res.deleted_rows} records.`); fetchAuthLogs(); } catch(e){ alert(e.message); } }
+
+        async function fetchProfiles() { try { const d = await apiCall('/api/v1/profiles'); const allowAttrs = (appSettings.enable_profile_attrs !== 'false'); document.getElementById('profilesTable').innerHTML = d.data.map(p => `<tr><td><strong>${p.groupname}</strong></td><td>${p.vlan}</td><td>${p.attributes?p.attributes.map(a=>`<span class="badge" title="${a.attribute}">${a.attribute}=${a.value} ${allowAttrs ? `<a href="#" style="color:#ffc107;" onclick="removeAttr('${p.groupname}','${a.attribute}')">[x]</a>` : ''}</span>`).join(' '):''}</td><td>${p.nas_restrictions?p.nas_restrictions.map(n=>`<span class="badge" style="background:#17a2b8;">IP: ${n} <a href="#" style="color:#ffc107;" onclick="removeNasRestrict('${p.groupname}','${n}')">[x]</a></span>`).join(' '):''}</td><td class="write-only"><button class="btn btn-warning" onclick="editProfile('${p.groupname}', ${p.vlan})">VLAN</button> ${allowAttrs ? `<button class="btn btn-info" onclick="openAttrModal('${p.groupname}')">+ Attr</button>` : ''} <button class="btn btn-primary" onclick="openNasModal('${p.groupname}')">+ NAS</button> <button class="btn btn-danger" onclick="delProfile('${p.groupname}')">Del</button></td></tr>`).join(''); const opts = '<option value="">No Profile</option>' + d.data.map(p => `<option value="${p.groupname}">${p.groupname}</option>`).join(''); document.getElementById('addUserProfile').innerHTML = opts; document.getElementById('editUserProfileSelect').innerHTML = opts; } catch(e){} }
+        async function createProfile() { const n = document.getElementById('addProfName').value, v = document.getElementById('addProfVlan').value; if(n && v) { try { await apiCall('/api/v1/profiles', {method: 'POST', body: {groupname: n, vlan: parseInt(v)}}); fetchProfiles(); } catch(e){ alert(e.message); } } }
+        async function editProfile(n, ov) { const v = prompt(`VLAN for '${n}':`, ov); if(v){ try { await apiCall(`/api/v1/profiles/${n}`, {method: 'PUT', body: {vlan: parseInt(v)}}); fetchProfiles(); } catch(e){ alert(e.message); } } }
+        async function delProfile(n) { if(confirm(`Del profile '${n}'?`)){ try { await apiCall(`/api/v1/profiles/${n}`, {method: 'DELETE'}); fetchProfiles(); } catch(e){ alert(e.message); } } }
+        function openAttrModal(n) { document.getElementById('attrProfileName').value=n; document.getElementById('attrModal').style.display='flex'; }
+        async function saveProfileAttr() { const n=document.getElementById('attrProfileName').value, a=document.getElementById('attrSelect').value, v=document.getElementById('attrValue').value; if(!v)return; try{ await apiCall(`/api/v1/profiles/${n}/attrs`, {method:'POST', body:{attribute:a, value:v}}); closeModal('attrModal'); fetchProfiles(); }catch(e){alert(e.message);} }
+        async function removeAttr(n, a) { if(confirm("Remove?")) { try{ await apiCall(`/api/v1/profiles/${n}/attrs?attribute=${a}`, {method:'DELETE'}); fetchProfiles(); }catch(e){alert(e.message);} } }
+        async function openNasModal(n) { try { const res=await apiCall('/api/v1/clients'); document.getElementById('restrictNasSelect').innerHTML = res.data.map(c=>`<option value="${c.nasname}">${c.shortname} (${c.nasname})</option>`).join(''); document.getElementById('restrictProfileName').value=n; document.getElementById('restrictProfileDisplay').innerText=n; document.getElementById('nasRestrictModal').style.display='flex'; } catch(e){} }
+        async function saveNasRestriction() { const n=document.getElementById('restrictProfileName').value, ip=document.getElementById('restrictNasSelect').value; if(!ip)return; try{ await apiCall(`/api/v1/profiles/${n}/nas`, {method:'POST', body:{ip:ip}}); closeModal('nasRestrictModal'); fetchProfiles(); }catch(e){alert(e.message);} }
+        async function removeNasRestrict(n, ip) { if(confirm("Remove NAS restriction?")) { try{ await apiCall(`/api/v1/profiles/${n}/nas?ip=${ip}`, {method:'DELETE'}); fetchProfiles(); }catch(e){alert(e.message);} } }
+
+        async function fetchUsers() { try { const d = await apiCall('/api/v1/users-summary'); document.getElementById('usersTable').innerHTML = d.data.length ? d.data.map(u => { const hasStatic = u.attributes.find(x=>x.attribute==='Framed-IP-Address'); return `<tr><td data-value="${u.username}"><strong>${u.username}</strong></td><td data-value="${u.profile||''}">${u.profile ? `<span class="badge" style="background:#007bff;">${u.profile}</span>` : '<em>None</em>'}</td><td>${u.attributes.map(a => `<span class="badge">${a.attribute} ${a.op} ${a.value}</span>`).join(' ')}</td><td>UP: ${formatBytes(u.upload_31d)}<br>DN: ${formatBytes(u.download_31d)}</td><td class="write-only"><button class="btn btn-warning" onclick="resetUserPass('${u.username}')">Pass</button> <button class="btn btn-info" onclick="openUserProfile('${u.username}', '${u.profile||''}')">Profile</button> <button class="btn btn-primary" onclick="setStaticIP('${u.username}', '${hasStatic?hasStatic.value:''}')">IP</button> <button class="btn btn-danger" onclick="delUser('${u.username}')">Del</button></td></tr>`; }).join('') : '<tr><td colspan="5" align="center">No Users</td></tr>'; } catch(e){} }
+        async function createUser() { const u = document.getElementById('addUsername').value, p = document.getElementById('addPassword').value, prof = document.getElementById('addUserProfile').value; if(u && p){ try { await apiCall('/api/v1/users', {method:'POST',body:{username:u, password:p, profile: prof||null}}); fetchUsers(); } catch(e){alert(e.message);} } }
+        async function setStaticIP(u, cip) { const ip = prompt("Enter Static IP (leave blank to remove):", cip); if(ip !== null) { try { await apiCall(`/api/v1/users/${u}/static-ip`, {method:'PUT', body:{ip:ip}}); fetchUsers(); }catch(e){alert(e.message);} } }
+        function uploadCSV() { const f = document.getElementById('csvFile').files[0]; if(!f) return; const reader = new FileReader(); reader.onload=async function(e){ const rows=e.target.result.split('\n').filter(r=>r.trim()); const data=[]; for(let i=1;i<rows.length;i++){ const cols=rows[i].split(','); if(cols.length>1) data.push({username:cols[0].trim(), password:cols[1].trim(), profile:cols[2]?cols[2].trim():'', ip:cols[3]?cols[3].trim():''}); } if(data.length){ try{ await apiCall('/api/v1/users/bulk', {method:'POST',body:data}); alert('Imported!'); fetchUsers(); }catch(err){alert(err.message);} } }; reader.readAsText(f); }
+        function openUserProfile(u, p) { document.getElementById('editUserProfileName').value=u; document.getElementById('editUserProfileDisplay').innerText=u; document.getElementById('editUserProfileSelect').value=p; document.getElementById('userProfileModal').style.display='flex'; }
+        async function saveUserProfile() { try { await apiCall(`/api/v1/users/${document.getElementById('editUserProfileName').value}/profile`, {method: 'PUT', body: {profile: document.getElementById('editUserProfileSelect').value||null}}); closeModal('userProfileModal'); fetchUsers(); } catch(e) { alert(e.message); } }
+        async function resetUserPass(u) { const p = prompt(`Pass for ${u}:`); if(p){ try { await apiCall(`/api/v1/users/${u}/password`, {method: 'PUT', body: {password: p}}); fetchUsers(); } catch(e){ alert(e.message); } } }
+        async function delUser(u) { if(confirm(`Del user '${u}'?`)){ try { await apiCall(`/api/v1/users/${u}`, {method: 'DELETE'}); fetchUsers(); } catch(e){ alert(e.message); } } }
+
+        async function fetchClients() { try { const d = await apiCall('/api/v1/clients'); document.getElementById('clientsTable').innerHTML = d.data.length ? d.data.map(c => `<tr><td data-value="${c.nasname}">${c.nasname}</td><td>${c.shortname}</td><td>${c.type}</td><td><code>${c.secret}</code></td><td class="write-only"><button class="btn btn-warning" onclick="openEditClient(${c.id}, '${c.nasname}', '${c.shortname}', '${c.type}', '${c.secret}', '${c.description}')">Edit</button> <button class="btn btn-danger" onclick="delClient(${c.id})">Del</button></td></tr>`).join('') : '<tr><td colspan="5" align="center">No Clients</td></tr>'; } catch(e){} }
+        async function createClient() { const p={nasname:document.getElementById('nasIp').value.trim(), shortname:document.getElementById('nasShort').value.trim(), type:'other', secret:document.getElementById('nasSecret').value, description:''}; if(!p.shortname) return alert("Shortname is mandatory!"); if(p.nasname){ try{ await apiCall('/api/v1/clients', {method:'POST', body:p}); fetchClients(); }catch(e){alert(e.message);} } }
+        function openEditClient(id, ip, short, type, sec, desc) { document.getElementById('editClientId').value=id; document.getElementById('editNasIp').value=ip; document.getElementById('editNasShort').value=short; document.getElementById('editNasType').value=type; document.getElementById('editNasSecret').value=sec; document.getElementById('editNasDesc').value=desc!=='null'?desc:''; document.getElementById('clientModal').style.display='flex'; }
+        async function saveClient() { const id=document.getElementById('editClientId').value, p={nasname:document.getElementById('editNasIp').value.trim(), shortname:document.getElementById('editNasShort').value.trim(), type:document.getElementById('editNasType').value, secret:document.getElementById('editNasSecret').value, description:document.getElementById('editNasDesc').value}; if(!p.shortname) return alert("Shortname is mandatory!"); try{ await apiCall(`/api/v1/clients/${id}`, {method:'PUT',body:p}); closeModal('clientModal'); fetchClients(); }catch(e){alert(e.message);} }
+        async function delClient(id) { if(confirm("Del?")){ try{ await apiCall(`/api/v1/clients/${id}`,{method:'DELETE'}); fetchClients(); }catch(e){alert(e.message);} } }
+
+        async function fetchAdmins() { try { const d = await apiCall('/api/v1/admins'); document.getElementById('adminsTable').innerHTML = d.data.map(a => `<tr><td>${a.id}</td><td>${a.username}</td><td>${a.roles}</td><td>${a.has_2fa ? '?? ' : ''} ${a.has_api_key ? '?? ' : ''}</td><td class="write-only"><button class="btn btn-warning" onclick="openEditAdmin(${a.id}, '${a.roles}', ${a.has_2fa})">Edit</button> <button class="btn btn-info" onclick="generateApiKey(${a.id})">API Key</button> <button class="btn btn-danger" onclick="deleteAdmin(${a.id})">Del</button></td></tr>`).join(''); } catch(e){} }
+        async function createAdmin() { const u=document.getElementById('newAdminUser').value.trim(), p=document.getElementById('newAdminPass').value.trim(); if(!u || !p) return alert("Username and Password are required!"); const rMode = document.querySelector('input[name="newAdminRW"]:checked').value; let rArr = Array.from(document.querySelectorAll('#newAdminRoles input:checked')).map(cb=>cb.value); if(rMode==='readwrite') rArr.push('write'); try { const res = await apiCall('/api/v1/admins', { method: 'POST', body: { username: u, password: p, enable_2fa: document.getElementById('newAdmin2FA').checked, roles: rArr.join(',') } }); if (res.qr_uri) { document.getElementById('qrContainer').style.display = 'block'; document.getElementById('qrImg').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(res.qr_uri)}`; } fetchAdmins(); } catch(e) { alert(e.message); } }
+        function openEditAdmin(id, rStr, h2fa) { document.getElementById('editAdminId').value=id; document.getElementById('editAdmin2FA').checked=h2fa; const rArr=rStr.split(','); document.querySelectorAll('input[name="editAdminRW"]').forEach(r => r.checked = r.value===(rArr.includes('write')?'readwrite':'readonly')); document.querySelectorAll('#editAdminRoles input').forEach(cb=>cb.checked=rArr.includes(cb.value)); document.getElementById('adminModal').style.display='flex'; }
+        async function saveAdmin() { const id = document.getElementById('editAdminId').value, use2fa = document.getElementById('editAdmin2FA').checked, rw = document.querySelector('input[name="editAdminRW"]:checked').value; let r = Array.from(document.querySelectorAll('#editAdminRoles input:checked')).map(cb=>cb.value); if(rw==='readwrite') r.push('write'); try { await apiCall(`/api/v1/admins/${id}`, {method:'PUT', body:{roles:r.join(','), enable_2fa:use2fa}}); closeModal('adminModal'); fetchAdmins(); } catch(e){ alert(e.message); } }
+        async function generateApiKey(id) { if(confirm("Gen Key?")){ try { const r = await apiCall(`/api/v1/admins/${id}/api-key`, { method:'POST' }); document.getElementById('apiKeyValue').innerText=r.api_key; document.getElementById('apiKeyDisplay').style.display='flex'; fetchAdmins(); } catch(e){alert(e.message);} } }
+        async function deleteAdmin(id) { if(confirm('Del?')){ try{ await apiCall(`/api/v1/admins/${id}`, {method:'DELETE'}); fetchAdmins(); }catch(e){} } }
+
+        async function fetchAudit() { const u = document.getElementById('auditUser').value, m = document.getElementById('auditMode').value, s = document.getElementById('auditStart').value, e = document.getElementById('auditEnd').value, a = document.getElementById('auditAction').value; try { const d = await apiCall(`/api/v1/audit?user=${u}&mode=${m}&start_date=${s}&end_date=${e}&action=${a}`); document.getElementById('auditTable').innerHTML = d.data.length ? d.data.map(l => `<tr><td>${new Date(l.created_at).toLocaleString()}</td><td><strong>${l.admin_user}</strong></td><td><span class="badge">${l.mode}</span></td><td>${l.action}</td></tr>`).join('') : '<tr><td colspan="4" align="center">No Audit Logs found</td></tr>'; } catch(e){} }
+        
+        checkAuth();
+    </script>
+</body>
+</html>
