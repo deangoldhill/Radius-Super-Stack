@@ -3,8 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <title>FreeRADIUS Management</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js">
+    async function fetchCertInfo() {
+        const box = document.getElementById('cert-info-box');
+        if (!box) return;
+        box.innerText = "Reading certificate from FreeRADIUS...";
+        try {
+            const data = await apiCall('/api/v1/system/certs/info');
+            let txt = "";
+            for (const [k, v] of Object.entries(data.data || {})) { txt += `${k.padEnd(10, ' ')} : ${v}\n`; }
+            box.innerText = txt || "No Data found.";
+        } catch(e) { box.innerText = e.message; }
+    }
+
+    async function generateCerts() {
+        if(!confirm("Are you sure? This will disconnect all active EAP users while the service restarts.")) return;
+        const payload = {
+            c: document.getElementById('certC').value, st: document.getElementById('certST').value,
+            l: document.getElementById('certL').value, o: document.getElementById('certO').value,
+            cn: document.getElementById('certCN').value, days: 3650
+        };
+        try {
+            await apiCall('/api/v1/system/certs', { method: 'POST', body: payload });
+            alert("New certificates generated and applied successfully!");
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+    async function uploadCerts() {
+        const cert = document.getElementById('up-cert').files[0];
+        const key = document.getElementById('up-key').files[0];
+        if(!cert || !key) return alert("Certificate and Private Key are required.");
+
+        const fd = new FormData();
+        fd.append("certificate", cert); fd.append("private_key", key);
+        if(document.getElementById('up-ca').files[0]) fd.append("ca_certificate", document.getElementById('up-ca').files[0]);
+        if(document.getElementById('up-pass').value) fd.append("key_password", document.getElementById('up-pass').value);
+
+        try {
+            await fetch('/api/v1/system/certs/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt')}` },
+                body: fd
+            }).then(res => {
+                if(!res.ok) throw new Error("Upload failed");
+                return res.json();
+            });
+            alert("Custom certificates uploaded and applied successfully!");
+            document.getElementById('up-cert').value=''; document.getElementById('up-key').value=''; document.getElementById('up-ca').value=''; document.getElementById('up-pass').value='';
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js">
+    async function fetchCertInfo() {
+        const box = document.getElementById('cert-info-box');
+        if (!box) return;
+        box.innerText = "Reading certificate from FreeRADIUS...";
+        try {
+            const data = await apiCall('/api/v1/system/certs/info');
+            let txt = "";
+            for (const [k, v] of Object.entries(data.data || {})) { txt += `${k.padEnd(10, ' ')} : ${v}\n`; }
+            box.innerText = txt || "No Data found.";
+        } catch(e) { box.innerText = e.message; }
+    }
+
+    async function generateCerts() {
+        if(!confirm("Are you sure? This will disconnect all active EAP users while the service restarts.")) return;
+        const payload = {
+            c: document.getElementById('certC').value, st: document.getElementById('certST').value,
+            l: document.getElementById('certL').value, o: document.getElementById('certO').value,
+            cn: document.getElementById('certCN').value, days: 3650
+        };
+        try {
+            await apiCall('/api/v1/system/certs', { method: 'POST', body: payload });
+            alert("New certificates generated and applied successfully!");
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+    async function uploadCerts() {
+        const cert = document.getElementById('up-cert').files[0];
+        const key = document.getElementById('up-key').files[0];
+        if(!cert || !key) return alert("Certificate and Private Key are required.");
+
+        const fd = new FormData();
+        fd.append("certificate", cert); fd.append("private_key", key);
+        if(document.getElementById('up-ca').files[0]) fd.append("ca_certificate", document.getElementById('up-ca').files[0]);
+        if(document.getElementById('up-pass').value) fd.append("key_password", document.getElementById('up-pass').value);
+
+        try {
+            await fetch('/api/v1/system/certs/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt')}` },
+                body: fd
+            }).then(res => {
+                if(!res.ok) throw new Error("Upload failed");
+                return res.json();
+            });
+            alert("Custom certificates uploaded and applied successfully!");
+            document.getElementById('up-cert').value=''; document.getElementById('up-key').value=''; document.getElementById('up-ca').value=''; document.getElementById('up-pass').value='';
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+</script>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; background: #eef2f5; color: #333;}
         #loginOverlay { position: fixed; top:0; left:0; width: 100%; height: 100%; background: #0056b3; display: flex; align-items: center; justify-content: center; z-index: 1000;}
@@ -59,7 +163,7 @@
         <button id="nav-clients" class="nav-btn" onclick="switchTab('clientsTab', this)">Clients</button>
         <button id="nav-admins" class="nav-btn" onclick="switchTab('adminsTab', this)">Admins</button>
         <button id="nav-audit" class="nav-btn" onclick="switchTab('auditTab', this)">Audit Logs</button>
-        <button id="nav-settings" class="nav-btn" onclick="switchTab('settingsTab', this)" style="display:block;">Settings</button>
+        <button id="nav-settings" class="nav-btn" onclick="switchTab('settingsTab', this); fetchCertInfo();" style="display:block;">Settings</button>
         <button class="logout-btn" onclick="logout()">Logout</button>
     </div>
 
@@ -166,6 +270,21 @@
                     <input type="text" id="certCN" placeholder="Common Name (e.g. Acme Corp)" style="width:90%; margin-bottom:5px;">
                     <button class="btn btn-danger" style="width:100%; margin-top:10px;" onclick="generateCerts()">Generate & Replace Certificates</button>
                 </div>
+
+                <div class="control-form write-only" style="flex-direction:column; align-items:flex-start; background: #e2e3e5; border: 1px solid #ccc;">
+                    <h3 style="margin-top:0;">Upload Custom Certificates</h3>
+                    <p style="font-size: 13px; margin: 0 0 10px 0; color:#555;">Upload your own commercial or custom certificates.</p>
+                    <label style="font-size: 12px; font-weight: bold;">Server Certificate (.pem)</label>
+                    <input type="file" id="up-cert" style="width:90%; margin-bottom:5px;">
+                    <label style="font-size: 12px; font-weight: bold;">Private Key (.key)</label>
+                    <input type="file" id="up-key" style="width:90%; margin-bottom:5px;">
+                    <label style="font-size: 12px; font-weight: bold;">CA Certificate (Optional)</label>
+                    <input type="file" id="up-ca" style="width:90%; margin-bottom:5px;">
+                    <label style="font-size: 12px; font-weight: bold;">Private Key Password (Optional)</label>
+                    <input type="password" id="up-pass" style="width:90%; margin-bottom:10px;" placeholder="Leave blank if unencrypted">
+                    <button class="btn btn-dark" style="width:100%; background:#343a40; color:#fff;" onclick="uploadCerts()">Upload & Apply</button>
+                </div>
+
             </div>
 
             <!-- Right Column -->
@@ -181,6 +300,14 @@
                         <strong>Client Certificates:</strong><br>
                         <a href="/api/v1/system/certs/download" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#28a745; color:#fff; text-decoration:none; border-radius:4px; font-size:13px; font-weight:bold;">Download Public Root CA (.der)</a>
                     </div>
+                </div>
+
+                <div class="control-form" style="flex-direction:column; align-items:flex-start; background: #fff3cd; border: 1px solid #ffeeba;">
+                    
+                <div class="control-form" style="flex-direction:column; align-items:flex-start; background: #e8f4f8; border: 1px solid #b8daff;">
+                    <h3 style="margin-top:0;">Active EAP Certificate</h3>
+                    <pre id="cert-info-box" style="width: 100%; background: #fff; padding: 10px; border: 1px solid #ccc; font-size: 12px; white-space: pre-wrap; overflow-x: auto;">Loading...</pre>
+                    <button class="btn btn-info" style="width:100%; margin-top:5px;" onclick="fetchCertInfo()">Refresh Certificate Info</button>
                 </div>
 
                 <div class="control-form" style="flex-direction:column; align-items:flex-start; background: #fff3cd; border: 1px solid #ffeeba;">
@@ -265,7 +392,7 @@
         async function generateCerts() { const p = { c: document.getElementById('certC').value.trim(), st: document.getElementById('certST').value.trim(), l: document.getElementById('certL').value.trim(), o: document.getElementById('certO').value.trim(), cn: document.getElementById('certCN').value.trim() }; if(!p.c || !p.cn) return alert("Country and Common Name are strictly required!"); if(confirm("WARNING: Generating new certs will instantly invalidate old certificates on all devices! FreeRADIUS will also restart. Proceed?")) { try { document.getElementById('sysRadStatus').innerText = "GENERATING..."; await apiCall('/api/v1/system/certs', {method:'POST', body: p}); alert("Success! New 10-year certificates applied."); fetchSystemStatus(); } catch(e) { alert(e.message); } } }
 
         function setupRBAC(roles) { let firstTab = null; roles.forEach(r => { const btn = document.getElementById('nav-' + r); if (btn) { btn.style.display = 'block'; if (!firstTab) firstTab = r + 'Tab'; } }); if(!roles.includes('write')){ const style = document.createElement('style'); style.innerHTML = '.write-only { display: none !important; }'; document.head.appendChild(style); } let d = new Date(); document.getElementById('repEnd').valueAsDate = d; document.getElementById('failRepEnd').valueAsDate = d; document.getElementById('auditEnd').valueAsDate = d; d.setDate(d.getDate() - 30); document.getElementById('repStart').valueAsDate = d; document.getElementById('failRepStart').valueAsDate = d; document.getElementById('auditStart').valueAsDate = d; if (firstTab) switchTab(firstTab, document.getElementById('nav-' + roles[0])); }
-        function switchTab(tabId, btn) { document.querySelectorAll('.container').forEach(c => c.classList.remove('active')); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); document.getElementById(tabId).classList.add('active'); if(btn) btn.classList.add('active'); if(['reportingTab','historyTab','authlogsTab'].includes(tabId)) fetchUserDropdown(); if(tabId === 'activeTab') fetchActive(); if(tabId === 'historyTab') fetchHistory(); if(tabId === 'authlogsTab') fetchAuthLogs(); if(tabId === 'profilesTab') fetchProfiles(); if(tabId === 'usersTab') { fetchProfiles(); fetchUsers(); } if(tabId === 'clientsTab') fetchClients(); if(tabId === 'adminsTab') fetchAdmins(); if(tabId === 'auditTab') fetchAudit(); if(tabId === 'settingsTab') fetchSystemStatus(); }
+        function switchTab(tabId, btn) { document.querySelectorAll('.container').forEach(c => c.classList.remove('active')); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); document.getElementById(tabId).classList.add('active'); if(btn) btn.classList.add('active'); if(['reportingTab','historyTab','authlogsTab'].includes(tabId)) fetchUserDropdown(); if(tabId === 'activeTab') fetchActive(); if(tabId === 'historyTab') fetchHistory(); if(tabId === 'authlogsTab') fetchAuthLogs(); if(tabId === 'profilesTab') fetchProfiles(); if(tabId === 'usersTab') { fetchProfiles(); fetchUsers(); } if(tabId === 'clientsTab') fetchClients(); if(tabId === 'adminsTab') fetchAdmins(); if(tabId === 'auditTab') fetchAudit(); if(tabId === 'settingsTab') { fetchSystemStatus(); fetchCertInfo(); } }
         
         async function fetchUserDropdown() { try { const res = await apiCall('/api/v1/users'); const users = res.data || []; const mode = appSettings.search_mode || 'dropdown'; const renderOpts = (withUnknown, selMsg) => `<option value="">${selMsg}</option>` + (withUnknown ? `<option value="__unknown__">Unknown User (Not in DB)</option>` : '') + users.map(u => `<option value="${u}">${u}</option>`).join(''); const applyHTML = (id, withU, selMsg) => { const el = document.getElementById(id + 'Container'); if(!el) return; if(mode === 'dropdown') el.innerHTML = `<select id="${id}">${renderOpts(withU, selMsg)}</select>`; else el.innerHTML = `<input type="text" id="${id}" list="${id}_list" placeholder="${selMsg}"><datalist id="${id}_list">${renderOpts(withU, selMsg)}</datalist>`; }; applyHTML('filterUser', true, 'All Users'); applyHTML('delUser', false, 'All Users'); applyHTML('filterAuthLogUser', true, 'All Users'); applyHTML('delAuthUser', false, 'All Users'); applyHTML('reportUser', true, 'Select a User...'); } catch(e){} }
 
@@ -320,6 +447,58 @@
         async function fetchAudit() { const u = document.getElementById('auditUser').value, m = document.getElementById('auditMode').value, s = document.getElementById('auditStart').value, e = document.getElementById('auditEnd').value, a = document.getElementById('auditAction').value; try { const d = await apiCall(`/api/v1/audit?user=${u}&mode=${m}&start_date=${s}&end_date=${e}&action=${a}`); document.getElementById('auditTable').innerHTML = d.data.length ? d.data.map(l => `<tr><td>${new Date(l.created_at).toLocaleString()}</td><td><strong>${l.admin_user}</strong></td><td><span class="badge">${l.mode}</span></td><td>${l.action}</td></tr>`).join('') : '<tr><td colspan="4" align="center">No Audit Logs found</td></tr>'; } catch(e){} }
         
         checkAuth();
-    </script>
+    
+    async function fetchCertInfo() {
+        const box = document.getElementById('cert-info-box');
+        if (!box) return;
+        box.innerText = "Reading certificate from FreeRADIUS...";
+        try {
+            const data = await apiCall('/api/v1/system/certs/info');
+            let txt = "";
+            for (const [k, v] of Object.entries(data.data || {})) { txt += `${k.padEnd(10, ' ')} : ${v}\n`; }
+            box.innerText = txt || "No Data found.";
+        } catch(e) { box.innerText = e.message; }
+    }
+
+    async function generateCerts() {
+        if(!confirm("Are you sure? This will disconnect all active EAP users while the service restarts.")) return;
+        const payload = {
+            c: document.getElementById('certC').value, st: document.getElementById('certST').value,
+            l: document.getElementById('certL').value, o: document.getElementById('certO').value,
+            cn: document.getElementById('certCN').value, days: 3650
+        };
+        try {
+            await apiCall('/api/v1/system/certs', { method: 'POST', body: payload });
+            alert("New certificates generated and applied successfully!");
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+    async function uploadCerts() {
+        const cert = document.getElementById('up-cert').files[0];
+        const key = document.getElementById('up-key').files[0];
+        if(!cert || !key) return alert("Certificate and Private Key are required.");
+
+        const fd = new FormData();
+        fd.append("certificate", cert); fd.append("private_key", key);
+        if(document.getElementById('up-ca').files[0]) fd.append("ca_certificate", document.getElementById('up-ca').files[0]);
+        if(document.getElementById('up-pass').value) fd.append("key_password", document.getElementById('up-pass').value);
+
+        try {
+            await fetch('/api/v1/system/certs/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt')}` },
+                body: fd
+            }).then(res => {
+                if(!res.ok) throw new Error("Upload failed");
+                return res.json();
+            });
+            alert("Custom certificates uploaded and applied successfully!");
+            document.getElementById('up-cert').value=''; document.getElementById('up-key').value=''; document.getElementById('up-ca').value=''; document.getElementById('up-pass').value='';
+            fetchCertInfo();
+        } catch(e) { alert(e.message); }
+    }
+
+</script>
 </body>
 </html>
